@@ -64,7 +64,7 @@ pub fn markdown(p: &Paper) -> String {
             sec.number
         );
         if !n.statement.is_empty() {
-            let _ = write!(s, " {}", n.statement);
+            let _ = write!(s, " {}", n.statement.replace('\n', " "));
         }
         s.push('\n');
     }
@@ -108,7 +108,7 @@ pub fn markdown(p: &Paper) -> String {
             }
             s.push('\n');
             if !n.statement.is_empty() {
-                let _ = writeln!(s, "  - {}", n.statement);
+                let _ = writeln!(s, "  - {}", n.statement.replace('\n', "\n    "));
             }
             if !n.uses.is_empty() {
                 let _ = writeln!(s, "  - Uses: {}", refs(p, &o, &n.uses));

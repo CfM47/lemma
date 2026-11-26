@@ -58,7 +58,7 @@ fn draw_footer(f: &mut Frame, area: Rect, app: &App) {
     let hints = match (&app.modal, app.tab) {
         (Some(_), _) => "",
         (None, Tab::Nodes) => {
-            "i interview · Enter expand · a add · A main · u use · x unuse · e edit · m main · p appendix · b basic · s symbol · d delete · ? help"
+            "i interview · Enter expand · a add · A main · u use · x unuse · e edit · E statement · m main · p appendix · b basic · s symbol · d delete · ? help"
         }
         (None, Tab::Alphabet) => {
             "←→ families/symbols · a symbol · f family · e edit · d delete · ? help"
@@ -200,11 +200,11 @@ fn draw_nodes(f: &mut Frame, area: Rect, app: &App) {
     lines.push(Line::raw(""));
     if n.statement.is_empty() {
         lines.push(Line::styled(
-            "(no statement: e to edit)",
+            "(no statement: E opens it in $EDITOR)",
             Style::new().dim().italic(),
         ));
     } else {
-        lines.push(Line::raw(n.statement.clone()));
+        lines.extend(n.statement.lines().map(|l| Line::raw(l.to_string())));
     }
     if n.kind == Kind::Known {
         let cite = if n.cite.is_empty() {
@@ -528,6 +528,10 @@ fn help() -> Vec<Line<'static>> {
         key("a / A", "add a statement / a main result"),
         key("u / x", "add / remove a dependency"),
         key("e / d", "edit / delete"),
+        key(
+            "E",
+            "edit the statement in $EDITOR (also Ctrl+E in any text field)",
+        ),
         key("m", "toggle main result"),
         key("p", "toggle proof in the appendix"),
         key("b", "toggle basic (nothing more to expand)"),
@@ -613,7 +617,7 @@ fn draw_form(f: &mut Frame, r: Rect, form: &Form) {
     let hint = match &form.error {
         Some(e) => Line::styled(e.clone(), Style::new().fg(Color::Red)),
         None => Line::styled(
-            "Enter next · ↑↓ move · ←→ choose · Ctrl+S save · Esc cancel",
+            "Enter next · ↑↓ move · ←→ choose · Ctrl+E $EDITOR · Ctrl+S save · Esc cancel",
             Style::new().dim(),
         ),
     };
@@ -654,7 +658,7 @@ fn draw_picker(f: &mut Frame, r: Rect, p: &Picker, app: &App) {
         && !n.statement.is_empty()
     {
         head.push(Line::styled(
-            n.statement.clone(),
+            n.statement.replace('\n', " "),
             Style::new().italic().dim(),
         ));
     }

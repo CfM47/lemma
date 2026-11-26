@@ -36,6 +36,8 @@ pub enum Outcome {
     Continue,
     Submit,
     Cancel,
+    /// Edit the focused text field in $EDITOR.
+    External,
 }
 
 impl Form {
@@ -78,6 +80,14 @@ impl Form {
         }
     }
 
+    /// Text of a text field, untrimmed.
+    pub fn get_raw(&self, label: &str) -> String {
+        match self.fields.iter().find(|f| f.label() == label) {
+            Some(Field::Text { input, .. }) => input.value().to_string(),
+            _ => String::new(),
+        }
+    }
+
     pub fn sel(&self, label: &str) -> usize {
         match self.fields.iter().find(|f| f.label() == label) {
             Some(Field::Choice { sel, .. }) => *sel,
@@ -102,6 +112,9 @@ impl Form {
         match key.code {
             KeyCode::Esc => return Outcome::Cancel,
             KeyCode::Char('s') if ctrl => return Outcome::Submit,
+            KeyCode::Char('e') if ctrl && matches!(self.fields[self.focus], Field::Text { .. }) => {
+                return Outcome::External;
+            }
             KeyCode::Enter if self.focus + 1 == n => return Outcome::Submit,
             KeyCode::Enter | KeyCode::Tab | KeyCode::Down => self.focus = (self.focus + 1) % n,
             KeyCode::BackTab | KeyCode::Up => self.focus = (self.focus + n - 1) % n,

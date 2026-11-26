@@ -71,7 +71,25 @@ impl Input {
     pub fn view(&self, width: usize) -> (String, usize) {
         let width = width.max(1);
         let start = self.cursor.saturating_sub(width - 1);
-        let s = self.text.chars().skip(start).take(width).collect();
+        let s = self
+            .text
+            .chars()
+            .skip(start)
+            .take(width)
+            .map(|c| if c == '\n' { '⏎' } else { c })
+            .collect();
         (s, self.cursor - start)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn view_scrolls_and_shows_newlines() {
+        let i = Input::new("ab\ncdef");
+        assert_eq!(i.view(4), ("def".to_string(), 3));
+        assert_eq!(Input::new("a\nb").view(10).0, "a⏎b");
     }
 }

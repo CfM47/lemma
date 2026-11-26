@@ -84,6 +84,12 @@ pub enum Modal {
     Help,
 }
 
+/// Text to edit in $EDITOR once the terminal is released.
+pub enum EditorJob {
+    Statement(String),
+    FormField(&'static str),
+}
+
 pub struct App {
     pub paper: Paper,
     path: PathBuf,
@@ -96,6 +102,7 @@ pub struct App {
     pub modal: Option<Modal>,
     pub status: String,
     quit: bool,
+    pending_editor: Option<EditorJob>,
 }
 
 pub fn run(path: &Path) -> Result<()> {
@@ -117,6 +124,7 @@ pub fn run(path: &Path) -> Result<()> {
         modal: None,
         status: String::new(),
         quit: false,
+        pending_editor: None,
     };
     if onboarding {
         app.modal = Some(app.paper_form(true));
@@ -138,6 +146,58 @@ impl App {
                 && key.kind == KeyEventKind::Press
             {
                 self.on_key(key);
+            }
+            if let Some(job) = self.pending_editor.take() {
+                self.run_editor(terminal, job)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Leaves the full screen, edits the text in $EDITOR and comes back.
+    fn run_editor(
+        &mut self,
+        terminal: &mut ratatui::DefaultTerminal,
+        job: EditorJob,
+    ) -> Result<()> {
+        let initial = match &job {
+            EditorJob::Statement(id) => self
+                .paper
+                .node(id)
+                .map(|n| n.statement.clone())
+                .unwrap_or_default(),
+            EditorJob::FormField(label) => match &self.modal {
+                Some(Modal::Form(f)) => f.get_raw(label),
+                _ => return Ok(()),
+            },
+        };
+        ratatui::restore();
+        let edited = edit_text(&initial, &editor_command());
+        *terminal = ratatui::init();
+        terminal.clear()?;
+        let text = match edited {
+            Ok(t) => t,
+            Err(e) => {
+                self.status = format!("Editor failed: {e:#}");
+                return Ok(());
+            }
+        };
+        match job {
+            EditorJob::Statement(id) => {
+                if let Some(n) = self.paper.node_mut(&id)
+                    && n.statement != text
+                {
+                    n.statement = text;
+                    self.status = format!("Statement of {} updated.", self.paper.label(&id));
+                    self.save();
+                }
+            }
+            EditorJob::FormField(label) => {
+                if let Some(Modal::Form(f)) = &mut self.modal
+                    && let Some(input) = f.input_mut(label)
+                {
+                    *input = Input::new(text);
+                }
             }
         }
         Ok(())
@@ -261,6 +321,7 @@ impl App {
         let Some(id) = self.selected_id() else { return };
         match key.code {
             KeyCode::Char('e') => self.modal = Some(self.edit_form(&id)),
+            KeyCode::Char('E') => self.pending_editor = Some(EditorJob::Statement(id.clone())),
             KeyCode::Char('d') => {
                 self.modal = Some(Modal::Confirm {
                     message: format!(
@@ -454,6 +515,10 @@ impl App {
                         _ => None,
                     },
                     Outcome::Submit => self.submit(form),
+                    Outcome::External => {
+                        self.pending_editor = Some(EditorJob::FormField(form.focused_label()));
+                        Some(Modal::Form(form))
+                    }
                 }
             }
         }
@@ -979,6 +1044,31 @@ impl App {
     }
 }
 
+fn editor_command() -> String {
+    ["VISUAL", "EDITOR"]
+        .iter()
+        .filter_map(|v| std::env::var(v).ok())
+        .find(|e| !e.trim().is_empty())
+        .unwrap_or_else(|| "vi".into())
+}
+
+/// Runs `editor` (a shell command, e.g. `code -w`) on a temporary .tex file holding `initial`.
+fn edit_text(initial: &str, editor: &str) -> Result<String> {
+    let path = std::env::temp_dir().join(format!("lemma-{}.tex", std::process::id()));
+    std::fs::write(&path, format!("{initial}\n"))?;
+    let status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("{editor} \"$1\""))
+        .arg("sh")
+        .arg(&path)
+        .status();
+    let text = std::fs::read_to_string(&path);
+    let _ = std::fs::remove_file(&path);
+    let status = status?;
+    anyhow::ensure!(status.success(), "{editor} exited with {status}");
+    Ok(text?.trim_end().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -997,6 +1087,7 @@ mod tests {
             modal: None,
             status: String::new(),
             quit: false,
+            pending_editor: None,
         }
     }
 
@@ -1028,6 +1119,13 @@ mod tests {
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    #[test]
+    fn external_editor_round_trip() {
+        let out = edit_text("For every $n$,\nold bound.", "sed -i 's/old/new/'").unwrap();
+        assert_eq!(out, "For every $n$,\nnew bound.");
+        assert!(edit_text("x", "false").is_err());
     }
 
     #[test]
