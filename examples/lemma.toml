@@ -1,0 +1,81 @@
+[paper]
+title = "Fast recognition of bounded-width graphs"
+story = "Recognizing graphs of bounded width is a bottleneck for parameterized algorithms. We show it takes linear time, using a new compression lemma."
+section = "Algorithms, automata, complexity and games"
+
+[[family]]
+name = "integer"
+letters = ["n", "m", "k"]
+
+[[family]]
+name = "graph"
+letters = ["G", "H"]
+
+[[family]]
+name = "vertex"
+letters = ["u", "v", "w"]
+
+[[symbol]]
+notation = "G"
+meaning = "input graph"
+family = "graph"
+introduced_by = "def:graph"
+macro = "\\graph"
+
+[[symbol]]
+notation = "k"
+meaning = "width bound"
+family = "integer"
+introduced_by = "def:width"
+
+[[node]]
+id = "thm:recognition"
+kind = "theorem"
+title = "Linear-time recognition"
+statement = "For every fixed $k$, width at most $k$ can be decided in $O(n)$ time."
+main = true
+status = "expanded"
+uses = ["lem:compression", "def:width", "thm:courcelle"]
+symbols = ["k"]
+
+[[node]]
+id = "cor:optimal"
+kind = "corollary"
+title = "Optimality"
+status = "expanded"
+uses = ["thm:recognition"]
+
+[[node]]
+id = "lem:compression"
+kind = "lemma"
+title = "Compression"
+status = "expanded"
+uses = ["def:width", "lem:degree"]
+appendix = true
+
+[[node]]
+id = "lem:degree"
+kind = "lemma"
+title = "Degree bound"
+uses = ["def:graph"]
+symbols = ["G"]
+
+[[node]]
+id = "def:width"
+kind = "definition"
+title = "Width"
+status = "expanded"
+uses = ["def:graph"]
+
+[[node]]
+id = "def:graph"
+kind = "definition"
+title = "Graph"
+status = "basic"
+
+[[node]]
+id = "thm:courcelle"
+kind = "known"
+title = "Courcelle's theorem"
+status = "basic"
+cite = "Theorem 1 of [Courcelle 1990]"

@@ -1,0 +1,92 @@
+symbol = []
+
+[paper]
+title = "Conplexity of the emptiness of the intersecion of regular languages and copying language generating devices."
+story = "In this article is proved that every language generating device capable of generating the language of copying words, cannot have both a polinomial algorithm to intesect it with a finite automata and an a polinomial algorithm to decide if it is empty."
+section = "Algorithms, automata, complexity and games"
+
+[[family]]
+name = "integer"
+letters = [
+    "n",
+    "m",
+    "k",
+    "i",
+    "j",
+    '\ell',
+]
+
+[[family]]
+name = "real"
+letters = [
+    "x",
+    "y",
+    "z",
+    "t",
+]
+
+[[family]]
+name = "small"
+letters = [
+    '\varepsilon',
+    '\delta',
+]
+
+[[family]]
+name = "constant"
+letters = [
+    "c",
+    '\alpha',
+    '\beta',
+]
+
+[[family]]
+name = "set"
+letters = [
+    "A",
+    "B",
+    "S",
+    "T",
+    "X",
+    "Y",
+]
+
+[[family]]
+name = "family"
+letters = [
+    '\mathcal{F}',
+    '\mathcal{A}',
+    '\mathcal{S}',
+]
+
+[[family]]
+name = "function"
+letters = [
+    "f",
+    "g",
+    "h",
+    '\varphi',
+]
+
+[[family]]
+name = "graph"
+letters = [
+    "G",
+    "H",
+]
+
+[[family]]
+name = "vertex"
+letters = [
+    "u",
+    "v",
+    "w",
+]
+
+[[node]]
+id = "thm:if-a-device-generates-w-there-ca"
+kind = "theorem"
+title = "If"
+statement = "1"
+main = true
+status = "open"
