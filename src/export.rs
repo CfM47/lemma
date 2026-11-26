@@ -237,13 +237,19 @@ fn tex_refs(p: &Paper, ids: &[String]) -> String {
         .join(", ")
 }
 
-fn tex_node(p: &Paper, v: usize) -> String {
+pub fn tex_node(p: &Paper, v: usize) -> String {
     let n = &p.nodes[v];
     let mut s = String::new();
     let opt = if n.kind == Kind::Known && !n.cite.is_empty() {
         format!("{}; {}", n.title, n.cite)
     } else {
         n.title.clone()
+    };
+    // A `]` inside the optional argument would close it early.
+    let opt = if opt.contains(['[', ']']) {
+        format!("{{{opt}}}")
+    } else {
+        opt
     };
     if n.kind == Kind::Known {
         s.push_str("% Known result: cite it precisely (\"Theorem 2 of [5]\"); no proof.\n");
@@ -259,6 +265,10 @@ fn tex_node(p: &Paper, v: usize) -> String {
     } else {
         let _ = writeln!(s, "{}", n.statement);
     }
+    // No proof to hold the dependencies: note them inside the environment.
+    if !n.kind.needs_proof() && !n.uses.is_empty() {
+        let _ = writeln!(s, "% Uses {}.", tex_refs(p, &n.uses));
+    }
     let _ = writeln!(s, "\\end{{{}}}", n.kind.env());
     if n.kind.needs_proof() {
         if n.appendix {
@@ -270,17 +280,57 @@ fn tex_node(p: &Paper, v: usize) -> String {
             }
             s.push_str("TODO.\n\\qed\n\\end{proof}\n");
         }
-    } else if !n.uses.is_empty() {
-        let _ = writeln!(s, "% Uses {}.", tex_refs(p, &n.uses));
     }
     s
 }
 
-/// LaTeX skeleton for the CAS template: `(path, contents)` pairs.
-pub fn latex(p: &Paper) -> Result<Vec<(String, String)>, String> {
-    let o = Outline::build(p).map_err(|c| cycle_message(p, &c))?;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    Intro,
+    /// Index into the outline's sections.
+    Section(usize),
+    Conclusion,
+    Appendix,
+    Inputs,
+    Macros,
+}
+
+pub struct TexFile {
+    pub path: String,
+    pub contents: String,
+    pub role: Role,
+}
+
+pub fn section_header(sec: &crate::outline::Section) -> String {
+    let mut s = format!("\\section{{{}}}\\label{{{}}}\n\n", sec.title, sec.label);
+    if sec.kind != SectionKind::Preliminaries {
+        s.push_str("% Intuition first: \"The idea is ...\"\n\n");
+    }
+    s
+}
+
+pub fn appendix_proof(p: &Paper, v: usize) -> String {
+    let n = &p.nodes[v];
+    let mut s = format!(
+        "\\paragraph{{Proof of {}~\\ref{{{}}}.}}\n",
+        n.kind.printed(),
+        n.id
+    );
+    if !n.uses.is_empty() {
+        let _ = writeln!(s, "% Uses {}.", tex_refs(p, &n.uses));
+    }
+    s.push_str("TODO.\n\\qed\n");
+    s
+}
+
+pub fn cycle_error(p: &Paper) -> Result<Outline, String> {
+    Outline::build(p).map_err(|c| cycle_message(p, &c))
+}
+
+/// LaTeX skeleton for the CAS template.
+pub fn latex(p: &Paper) -> Result<Vec<TexFile>, String> {
+    let o = cycle_error(p)?;
     let mut files = vec![];
-    let mut inputs = vec![];
 
     let mut intro = String::from("\\section{Introduction}\\label{sec:intro}\n\n");
     if !p.paper.story.trim().is_empty() {
@@ -316,61 +366,87 @@ pub fn latex(p: &Paper) -> Result<Vec<(String, String)>, String> {
         let _ = writeln!(intro, "Section~\\ref{{{}}}: {}.", sec.label, sec.title);
     }
     intro.push_str("Section~\\ref{sec:conclusion}: concluding remarks and open problems.\n");
-    files.push(("sections/01-introduction.tex".to_string(), intro));
+    let file = |path: String, contents: String, role| TexFile {
+        path,
+        contents,
+        role,
+    };
+    files.push(file(
+        "sections/01-introduction.tex".into(),
+        intro,
+        Role::Intro,
+    ));
 
-    for sec in &o.sections {
-        let mut s = format!("\\section{{{}}}\\label{{{}}}\n\n", sec.title, sec.label);
-        if sec.kind != SectionKind::Preliminaries {
-            s.push_str("% Intuition first: \"The idea is ...\"\n\n");
-        }
+    for (i, sec) in o.sections.iter().enumerate() {
+        let mut s = section_header(sec);
         for &v in &sec.items {
             s.push_str(&tex_node(p, v));
             s.push('\n');
         }
         let tail = sec.label.trim_start_matches("sec:");
-        files.push((format!("sections/{:02}-{tail}.tex", sec.number), s));
+        files.push(file(
+            format!("sections/{:02}-{tail}.tex", sec.number),
+            s,
+            Role::Section(i),
+        ));
     }
 
     let conclusion = o.sections.len() + 2;
-    files.push((
+    files.push(file(
         format!("sections/{conclusion:02}-conclusion.tex"),
         "\\section{Concluding remarks and open problems}\\label{sec:conclusion}\n\nTODO.\n".into(),
+        Role::Conclusion,
     ));
 
     if !o.appendix.is_empty() {
-        let mut s = String::from(
-            "\\section{Deferred proofs}\\label{app:proofs}\n\\setcounter{equation}{0}\n\n",
-        );
+        let mut s = String::from(APPENDIX_HEADER);
         for &v in &o.appendix {
-            let n = &p.nodes[v];
-            let _ = writeln!(
-                s,
-                "\\paragraph{{Proof of {}~\\ref{{{}}}.}}",
-                n.kind.printed(),
-                n.id
-            );
-            if !n.uses.is_empty() {
-                let _ = writeln!(s, "% Uses {}.", tex_refs(p, &n.uses));
-            }
-            s.push_str("TODO.\n\\qed\n\n");
+            s.push_str(&appendix_proof(p, v));
+            s.push('\n');
         }
-        files.push(("sections/appendix-a.tex".into(), s));
+        files.push(file("sections/appendix-a.tex".into(), s, Role::Appendix));
     }
 
-    for (path, _) in &files {
-        let stem = path.trim_end_matches(".tex");
-        if path.ends_with("appendix-a.tex") {
-            inputs.push("\\appendix".to_string());
-        }
-        inputs.push(format!("\\input{{{stem}}}"));
-    }
-    let mut list = String::from("%% Generated by lemma: \\input{sections/inputs} from main.tex.\n");
-    for i in &inputs {
-        let _ = writeln!(list, "{i}");
-    }
-    files.push(("sections/inputs.tex".into(), list));
-    files.push(("macros.tex".into(), macros(p, &o)));
+    let paths: Vec<String> = files.iter().map(|f| f.path.clone()).collect();
+    files.push(file(
+        "sections/inputs.tex".into(),
+        inputs_file(&paths),
+        Role::Inputs,
+    ));
+    files.push(file("macros.tex".into(), macros(p, &o), Role::Macros));
     Ok(files)
+}
+
+pub const APPENDIX_HEADER: &str =
+    "\\section{Deferred proofs}\\label{app:proofs}\n\\setcounter{equation}{0}\n\n";
+pub const INPUTS_HEADER: &str = "%% Generated by lemma: \\input{sections/inputs} from main.tex.\n";
+
+/// `\input` lines for files given relative to the document's directory.
+pub fn inputs_file(paths: &[String]) -> String {
+    let mut s = String::from(INPUTS_HEADER);
+    for path in paths {
+        if path.ends_with("appendix-a.tex") {
+            s.push_str("\\appendix\n");
+        }
+        let _ = writeln!(s, "\\input{{{}}}", path.trim_end_matches(".tex"));
+    }
+    s
+}
+
+/// `\newcommand` line for a symbol with a macro.
+pub fn macro_line(p: &Paper, o: &Outline, sy: &crate::model::Symbol) -> String {
+    let mut comment = format!("{} — {}", sy.notation, sy.meaning);
+    if let Some(v) = p.index(&sy.introduced_by) {
+        let _ = write!(comment, " ({})", o.reference(p, v));
+    }
+    if sy.macro_name.is_empty() {
+        format!("%% {comment}")
+    } else {
+        format!(
+            "\\newcommand{{{}}}{{{}}} % {comment}",
+            sy.macro_name, sy.notation
+        )
+    }
 }
 
 fn macros(p: &Paper, o: &Outline) -> String {
@@ -382,19 +458,7 @@ fn macros(p: &Paper, o: &Outline) -> String {
     }
     s.push('\n');
     for sy in &p.symbols {
-        let mut comment = format!("{} — {}", sy.notation, sy.meaning);
-        if let Some(v) = p.index(&sy.introduced_by) {
-            let _ = write!(comment, " ({})", o.reference(p, v));
-        }
-        if sy.macro_name.is_empty() {
-            let _ = writeln!(s, "%% {comment}");
-        } else {
-            let _ = writeln!(
-                s,
-                "\\newcommand{{{}}}{{{}}} % {comment}",
-                sy.macro_name, sy.notation
-            );
-        }
+        let _ = writeln!(s, "{}", macro_line(p, o, sy));
     }
     s
 }

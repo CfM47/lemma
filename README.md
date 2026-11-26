@@ -30,11 +30,38 @@ lemma                 # full-screen editor on ./lemma.toml (creates it)
 lemma outline         # outline as Markdown
 lemma check           # cycles, unused lemmas, missing citations, alphabet clashes
 lemma graph --format dot | dot -Tpdf > deps.pdf   # or --format mermaid
-lemma latex --out articulo   # sections/*.tex, sections/inputs.tex and macros.tex
+lemma latex --out articulo   # write the skeleton, or add what is missing (see below)
+lemma import articulo        # read statements and \refs from existing LaTeX into the plan
 ```
 
 `-f FILE` picks another plan file. The plan is a plain TOML file: edit it by
 hand and keep it in git next to the paper. See `examples/lemma.toml`.
+
+### LaTeX, both ways
+
+`lemma latex --out DIR` never overwrites what you wrote. In an empty directory it
+writes the whole skeleton (`sections/*.tex`, `sections/inputs.tex`, `macros.tex`).
+In an existing paper it finds each section by its `\label` (`sec:prelim`, ...)
+in any `.tex` file and inserts a stub for every statement of the plan that has no
+`\label` yet, next to its neighbours in the outline. It also adds missing proofs
+to the appendix and missing macros to `macros.tex`. It reports:
+
+- new files that `main.tex` does not `\input` yet;
+- statements that sit in a different section than the outline says;
+- main results the introduction does not mention;
+- labelled statements in the LaTeX that the plan does not know.
+
+`--force` rewrites every generated file from scratch.
+
+`lemma import PATH` goes the other way. It reads a directory from its `main.tex`,
+following `\input`, or reads the files you give it. Every theorem-like
+environment with a `\label` becomes a statement: theorem, lemma, proposition,
+corollary, definition, remark, example and their usual short names. Every `\ref`
+in the statement or in its proof becomes a dependency. A proof headed "Proof of
+Lemma~\ref{...}" elsewhere marks the proof as deferred, and a `\cite` in the
+optional argument marks a known result. If the plan has no main result, theorems
+that only corollaries use become main. Statements already in the plan are kept.
+`--dry-run` shows the changes without saving.
 
 ### Editor
 
@@ -45,6 +72,7 @@ hand and keep it in git next to the paper. See `examples/lemma.toml`.
 | `a` / `A` | add a statement / a main result |
 | `u` / `x` | add / remove a dependency |
 | `e` / `d` | edit / delete |
+| `E` | edit the statement in `$EDITOR` (`Ctrl+E` in any form field) |
 | `m` / `p` / `b` | toggle main result / proof in appendix / basic |
 | `s` | add a symbol introduced by the selected statement |
 | `1`–`4` | statements, alphabet, outline, checks |

@@ -3,12 +3,14 @@ mod export;
 mod graph;
 mod model;
 mod outline;
+mod sync;
+mod tex;
 mod tui;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand, ValueEnum};
 use model::Paper;
-use std::{fs, path::PathBuf};
+use std::path::PathBuf;
 
 /// Plan the outline and the alphabet of a mathematical paper.
 #[derive(Parser)]
@@ -39,14 +41,30 @@ enum Cmd {
         #[arg(long, value_enum, default_value_t = GraphFormat::Mermaid)]
         format: GraphFormat,
     },
-    /// Write a LaTeX skeleton (sections/*.tex and macros.tex) for the CAS template
+    /// Write the LaTeX skeleton for the CAS template, or add what is missing to an existing one
+    ///
+    /// Statements of the plan that have no \label in the sources get a stub in their
+    /// section, next to their neighbours; text already written is never touched.
     Latex {
-        /// Output directory
+        /// Directory of the paper
         #[arg(long, default_value = "lemma-latex")]
         out: PathBuf,
-        /// Overwrite existing files
+        /// Rewrite every generated file from scratch
         #[arg(long)]
         force: bool,
+    },
+    /// Read statements, labels and references from LaTeX sources into the plan
+    ///
+    /// A directory is read from its main.tex (or files with \documentclass), following \input.
+    /// Theorem-like environments with a \label become statements; \ref in a statement or
+    /// its proof becomes a dependency. Existing statements are kept.
+    Import {
+        /// .tex files or directories
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// Show what would change without saving
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -115,28 +133,66 @@ fn main() -> Result<()> {
         }
         Cmd::Latex { out, force } => {
             let p = load(&cli)?;
-            let files = export::latex(&p).map_err(anyhow::Error::msg)?;
-            let existing: Vec<String> = files
-                .iter()
-                .filter(|(path, _)| out.join(path).exists())
-                .map(|(path, _)| path.clone())
-                .collect();
-            if !existing.is_empty() && !force {
-                bail!(
-                    "would overwrite {} in {} (use --force)",
-                    existing.join(", "),
-                    out.display()
+            let rep = sync::sync(&p, out, *force)?;
+            for f in &rep.created {
+                println!("created {}", f.display());
+            }
+            for f in &rep.changed {
+                println!("updated {}", f.display());
+            }
+            for i in &rep.inserted {
+                println!("  + {i}");
+            }
+            for n in &rep.notes {
+                println!("note: {n}");
+            }
+            if rep.created.is_empty() && rep.changed.is_empty() {
+                println!("{} is up to date.", out.display());
+            }
+            Ok(())
+        }
+        Cmd::Import { paths, dry_run } => {
+            let mut p = if cli.file.exists() {
+                Paper::load(&cli.file)?
+            } else {
+                Paper::new()
+            };
+            let doc = tex::TexDoc::read(paths)?;
+            let rep = sync::import(&mut p, &doc);
+            println!("read {} file(s)", rep.files);
+            if let Some(t) = &rep.title {
+                println!("title: {t}");
+            }
+            for a in &rep.added {
+                println!("  + {}", p.label(a));
+            }
+            println!(
+                "{} statement(s) added, {} dependenc(ies) added",
+                rep.added.len(),
+                rep.links
+            );
+            if !rep.mains.is_empty() {
+                let names: Vec<String> = rep.mains.iter().map(|m| p.label(m)).collect();
+                println!(
+                    "main results guessed (theorems only corollaries, remarks or examples use; change with m in the editor): {}",
+                    names.join(", ")
                 );
             }
-            for (path, contents) in &files {
-                let dest = out.join(path);
-                if let Some(dir) = dest.parent() {
-                    fs::create_dir_all(dir)?;
-                }
-                fs::write(&dest, contents)?;
-                println!("wrote {}", dest.display());
+            if rep.unlabeled > 0 {
+                println!(
+                    "note: {} environment(s) without \\label were skipped",
+                    rep.unlabeled
+                );
             }
-            println!("Add \\input{{macros}} and \\input{{sections/inputs}} to main.tex.");
+            for r in &rep.refused {
+                println!("note: dependency skipped: {r}");
+            }
+            if *dry_run {
+                println!("dry run: {} not written", cli.file.display());
+            } else {
+                p.save(&cli.file)?;
+                println!("saved {}", cli.file.display());
+            }
             Ok(())
         }
     }
